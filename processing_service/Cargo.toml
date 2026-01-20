@@ -4,3 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tonic = "0.10"       # Le client gRPC
+prost = "0.12"       # Pour gérer les messages du RPC
+dotenvy = "0.15"
+anyhow = "1.0"
+
+[build-dependencies]
+tonic-build = "0.10" # Nécessaire pour compiler le lien RPC
