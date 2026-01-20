@@ -1,6 +1,5 @@
-/target
-
-
+processing_service/target
+processing_service/Cargo.lock
 # Added by cargo
 #
 # already existing elements were commented out
