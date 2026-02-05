@@ -1,0 +1,1 @@
+/home/dupej/qualitedevprojet/databases/target/debug/game_api: /home/dupej/qualitedevprojet/databases/src/db.rs /home/dupej/qualitedevprojet/databases/src/main.rs /home/dupej/qualitedevprojet/databases/src/models.rs /home/dupej/qualitedevprojet/databases/src/routes.rs
