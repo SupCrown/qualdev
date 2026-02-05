@@ -1,0 +1,198 @@
+Index: processing_service/Cargo.toml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>[package]\nname = \"processing_service\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\ntokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\"] }\ntonic = \"0.10\"       # Le client gRPC\nprost = \"0.12\"       # Pour gérer les messages du RPC\ndotenvy = \"0.15\"\nanyhow = \"1.0\"\n\n[build-dependencies]\ntonic-build = \"0.10\" # Nécessaire pour compiler le lien RPC
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/processing_service/Cargo.toml b/processing_service/Cargo.toml
+--- a/processing_service/Cargo.toml	(revision 577fd9d9bf12f0edf0e4090a38021d6f52483e9a)
++++ b/processing_service/Cargo.toml	(date 1770298951282)
+@@ -4,11 +4,11 @@
+ edition = "2024"
+ 
+ [dependencies]
++tonic = "0.14.2"
++prost = "0.14.3"
+ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+-tonic = "0.10"       # Le client gRPC
+-prost = "0.12"       # Pour gérer les messages du RPC
+-dotenvy = "0.15"
+-anyhow = "1.0"
++grpc = "0.8.3"
+ 
+ [build-dependencies]
+-tonic-build = "0.10" # Nécessaire pour compiler le lien RPC
+\ No newline at end of file
++tonic-prost-build = "0.14.2"
++tonic-build = "0.14.3"
+\ No newline at end of file
+Index: processing_service/build.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>fn main() -> Result<(), Box<dyn std::error::Error>> {\n    // On pointe vers le fichier proto du dossier voisin \"word_service\"\n    let proto_file = \"../word_service/proto/word.proto\";\n\n    // On compile le proto pour pouvoir l'utiliser dans le code Rust\n    tonic_build::compile_protos(proto_file)?;\n\n    println!(\"cargo:rerun-if-changed={}\", proto_file);\n\n    Ok(())\n}
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/processing_service/build.rs b/processing_service/build.rs
+--- a/processing_service/build.rs	(revision 577fd9d9bf12f0edf0e4090a38021d6f52483e9a)
++++ b/processing_service/build.rs	(date 1770298829377)
+@@ -1,11 +1,5 @@
+ fn main() -> Result<(), Box<dyn std::error::Error>> {
+-    // On pointe vers le fichier proto du dossier voisin "word_service"
+-    let proto_file = "../word_service/proto/word.proto";
+-
+-    // On compile le proto pour pouvoir l'utiliser dans le code Rust
+-    tonic_build::compile_protos(proto_file)?;
+-
+-    println!("cargo:rerun-if-changed={}", proto_file);
+-
++    // La fonction compile_protos se trouve maintenant dans tonic_prost_build
++    tonic_prost_build::compile_protos("proto/word.proto")?;
+     Ok(())
+ }
+\ No newline at end of file
+Index: processing_service/src/main.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>mod dico_rcp;\n\nfn main() {\n    println!(\"Hello, world!\");\n}\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/processing_service/src/main.rs b/processing_service/src/main.rs
+--- a/processing_service/src/main.rs	(revision 577fd9d9bf12f0edf0e4090a38021d6f52483e9a)
++++ b/processing_service/src/main.rs	(date 1770298946050)
+@@ -1,5 +1,34 @@
+-mod dico_rcp;
++mod server;
++
++use tonic::Request;
+ 
+-fn main() {
+-    println!("Hello, world!");
++// On inclut le code généré à partir du package "word" défini dans le proto
++pub mod word {
++    tonic::include_proto!("word");
+ }
++
++use word::word_service_client::WordServiceClient;
++use word::GetRandomWordRequest;
++
++#[tokio::main]
++async fn main() -> Result<(), Box<dyn std::error::Error>> {
++    // 1. Connexion au serveur (assurez-vous que l'adresse et le port correspondent à votre serveur)
++    // Par défaut, gRPC utilise souvent le port 50051 en local.
++    let mut client = WordServiceClient::connect("http://[::1]:50051").await?;
++
++    // 2. Préparation de la requête
++    // Le proto définit que la requête prend un paramètre 'length'
++    let request = Request::new(GetRandomWordRequest {
++        length: 5,
++    });
++
++    println!("Envoi de la requête pour un mot de 5 lettres...");
++
++    // 3. Appel de la méthode RPC 'GetRandomWord'
++    let response = client.get_random_word(request).await?;
++
++    // 4. Affichage de la réponse
++    println!("RÉPONSE REÇUE : {:?}", response.get_ref().word);
++
++    Ok(())
++}
+\ No newline at end of file
+Index: processing_service/src/dico_rcp.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>use tonic::transport::Channel;\nuse anyhow::Result;\n\n// On importe le module généré par le RPC (simulé ici par la macro include_proto)\n// Cela correspond à la définition fournie par l'équipe Data Publish\npub mod data_publish_proto {\n    tonic::include_proto!(\"word\"); // Nom du package dans le fichier .proto\n}\n\nuse data_publish_proto::dictionary_service_client::DictionaryServiceClient;\nuse data_publish_proto::EmptyRequest; // Une requête vide\n\npub struct DicoRpcClient {\n    // Le client gRPC généré par tonic\n    client: DictionaryServiceClient<Channel>,\n}\n\nimpl DicoRpcClient {\n    // Connexion au serveur RPC \"Data Publish\"\n    pub async fn connect(dst: String) -> Result<Self> {\n        let client = DictionaryServiceClient::connect(dst).await?;\n        Ok(Self { client })\n    }\n\n    // Appel de la fonction précise\n    pub async fn get_random_french_word(&mut self) -> Result<String> {\n        // 1. On prépare la requête (vide ici car on veut juste un mot au hasard)\n        let request = tonic::Request::new(EmptyRequest {});\n\n        // 2. On appelle la fonction RPC définie par Data Publish\n        let response = self.client.get_random_french_word(request).await?;\n\n        // 3. On extrait le mot de la réponse\n        // On suppose que la réponse a un champ nommé \"word\"\n        let word = response.into_inner().word;\n\n        Ok(word)\n    }\n}
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/processing_service/src/dico_rcp.rs b/processing_service/src/dico_rcp.rs
+--- a/processing_service/src/dico_rcp.rs	(revision 577fd9d9bf12f0edf0e4090a38021d6f52483e9a)
++++ b/processing_service/src/dico_rcp.rs	(date 1770298115871)
+@@ -1,39 +1,0 @@
+-use tonic::transport::Channel;
+-use anyhow::Result;
+-
+-// On importe le module généré par le RPC (simulé ici par la macro include_proto)
+-// Cela correspond à la définition fournie par l'équipe Data Publish
+-pub mod data_publish_proto {
+-    tonic::include_proto!("word"); // Nom du package dans le fichier .proto
+-}
+-
+-use data_publish_proto::dictionary_service_client::DictionaryServiceClient;
+-use data_publish_proto::EmptyRequest; // Une requête vide
+-
+-pub struct DicoRpcClient {
+-    // Le client gRPC généré par tonic
+-    client: DictionaryServiceClient<Channel>,
+-}
+-
+-impl DicoRpcClient {
+-    // Connexion au serveur RPC "Data Publish"
+-    pub async fn connect(dst: String) -> Result<Self> {
+-        let client = DictionaryServiceClient::connect(dst).await?;
+-        Ok(Self { client })
+-    }
+-
+-    // Appel de la fonction précise
+-    pub async fn get_random_french_word(&mut self) -> Result<String> {
+-        // 1. On prépare la requête (vide ici car on veut juste un mot au hasard)
+-        let request = tonic::Request::new(EmptyRequest {});
+-
+-        // 2. On appelle la fonction RPC définie par Data Publish
+-        let response = self.client.get_random_french_word(request).await?;
+-
+-        // 3. On extrait le mot de la réponse
+-        // On suppose que la réponse a un champ nommé "word"
+-        let word = response.into_inner().word;
+-
+-        Ok(word)
+-    }
+-}
+\ No newline at end of file
+Index: processing_service/src/server.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/processing_service/src/server.rs b/processing_service/src/server.rs
+new file mode 100644
+--- /dev/null	(date 1770298947898)
++++ b/processing_service/src/server.rs	(date 1770298947898)
+@@ -0,0 +1,8 @@
++mod grpc_pb {
++    grpc::include_generated_proto!("generated", "routeguide");
++}
++
++use grpc_pb::{
++    route_guide_client::RouteGuideClient,
++    Point,
++};
+Index: processing_service/proto/word.proto
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/processing_service/proto/word.proto b/processing_service/proto/word.proto
+new file mode 100644
+--- /dev/null	(date 1768902874275)
++++ b/processing_service/proto/word.proto	(date 1768902874275)
+@@ -0,0 +1,15 @@
++syntax = "proto3";
++
++package word;
++
++service WordService {
++  rpc GetRandomWord (GetRandomWordRequest) returns (GetRandomWordResponse);
++}
++
++message GetRandomWordRequest {
++  uint32 length = 1; // ex: 6 pour SUTOM
++}
++
++message GetRandomWordResponse {
++  string word = 1;
++}
+\ No newline at end of file

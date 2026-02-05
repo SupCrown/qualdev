@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
+  <component name="CargoProjects">
+    <cargoProject FILE="$PROJECT_DIR$/Cargo.toml">
+      <package file="$PROJECT_DIR$">
+        <feature name="default" enabled="true" />
+      </package>
+    </cargoProject>
+    <cargoProject FILE="$PROJECT_DIR$/processing_service/Cargo.toml">
+      <package file="$PROJECT_DIR$/processing_service">
+        <feature name="default" enabled="true" />
+      </package>
+    </cargoProject>
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="3cc35239-87d6-45fa-9cbf-3ace8c5bd500" name="Changes" comment="init du projet rust">
+      <change afterPath="$PROJECT_DIR$/processing_service/.cargo/config.toml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/processing_service/proto/word.proto" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/processing_service/src/server.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/processing_service/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/processing_service/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/processing_service/build.rs" beforeDir="false" afterPath="$PROJECT_DIR$/processing_service/build.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/processing_service/src/dico_rcp.rs" beforeDir="false" afterPath="$PROJECT_DIR$/processing_service/src/dico_rcp.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/processing_service/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/processing_service/src/main.rs" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ExecutionTargetManager" SELECTED_TARGET="RsBuildProfile:dev" />
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Rust File" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="Processing_Josua" />
+      </map>
+    </option>
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="xqvRIZfL" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 1
+}</component>
+  <component name="ProjectId" id="38VxB4smqJKaDKd7708zVY6QeRQ" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Cargo.Run processing_service.executor": "Run",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.rust.reset.selective.auto.import": "true",
+    "git-widget-placeholder": "rpc",
+    "junie.onboarding.icon.badge.shown": "true",
+    "last_opened_file_path": "/users/but/info/kebailij/s5/qualitedevprojet/processing_service",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
+    "org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon": "",
+    "org.rust.first.attach.projects": "true",
+    "to.speed.mode.migration.done": "true",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/processing_service" />
+    </key>
+  </component>
+  <component name="RunManager">
+    <configuration name="Run processing_service" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="buildProfileId" value="dev" />
+      <option name="command" value="run --package processing_service --bin processing_service" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/processing_service" />
+      <envs />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Cargo.Run processing_service" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="RustProjectSettings">
+    <option name="toolchainHomeDirectory" value="/soft/Rust/bin" />
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="3cc35239-87d6-45fa-9cbf-3ace8c5bd500" name="Changes" comment="" />
+      <created>1768898400978</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1768898400978</updated>
+      <workItem from="1768898402077" duration="3066000" />
+      <workItem from="1768902864759" duration="95000" />
+      <workItem from="1770295934415" duration="3537000" />
+    </task>
+    <task id="LOCAL-00001" summary="init du projet rust">
+      <option name="closed" value="true" />
+      <created>1768898716092</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1768898716092</updated>
+    </task>
+    <task id="LOCAL-00002" summary="init du projet rust">
+      <option name="closed" value="true" />
+      <created>1768902788045</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1768902788045</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="init du projet rust" />
+    <option name="LAST_COMMIT_MESSAGE" value="init du projet rust" />
+  </component>
+</project>
