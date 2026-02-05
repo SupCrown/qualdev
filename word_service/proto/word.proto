@@ -8,7 +8,6 @@ service WordService {
 }
 
 message GetRandomWordRequest {
-  uint32 min_length = 1;
 }
 
 message GetRandomWordResponse {
