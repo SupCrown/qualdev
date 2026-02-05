@@ -15,11 +15,9 @@ struct WordServiceImpl;
 impl WordService for WordServiceImpl {
     async fn get_random_word(
         &self,
-        request: Request<GetRandomWordRequest>,
+        _request: Request<GetRandomWordRequest>,
     ) -> Result<Response<GetRandomWordResponse>, Status> {
-        let min_length = request.into_inner().min_length;
-
-        let word = fetch_and_normalize_word(min_length)
+        let word = fetch_and_normalize_word()
             .await
             .map_err(|_| Status::unavailable("Failed to fetch word"))?;
 
@@ -58,14 +56,17 @@ fn normalize(word: &str) -> String {
     filtered.as_str().to_uppercase()
 }
 
-async fn fetch_and_normalize_word(min_length: u32) -> Result<String, reqwest::Error> {
-    let url = format!(
-        "https://trouve-mot.fr/api/sizemin/{}",
-        min_length
-    );
+async fn fetch_and_normalize_word() -> Result<String, reqwest::Error> {
+    let url = "https://trouve-mot.fr/api/sizemin/4";
 
-    let response: Vec<TrouveMotResponse> =
+    let mut response: Vec<TrouveMotResponse> =
         reqwest::get(url).await?.json().await?;
+    let mut count = response[0].name.chars().count();
+
+    while count > 10 {
+        response = reqwest::get(url).await?.json().await?;
+        count = response[0].name.chars().count();
+    }
 
     Ok(normalize(&response[0].name))
 }
