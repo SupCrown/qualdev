@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package word;
+
+service WordService {
+  rpc GetRandomWord (GetRandomWordRequest)
+      returns (GetRandomWordResponse);
+}
+
+message GetRandomWordRequest {
+}
+
+message GetRandomWordResponse {
+  string word = 1;
+}
