@@ -2,6 +2,7 @@
 /target/debug
 /databases/target
 /databases/target/debug
+databases/target/debug
 # Added by cargo
 #
 # already existing elements were commented out
