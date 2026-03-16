@@ -21,6 +21,7 @@ pub fn routes(pool: PgPool) -> Router {
         .route("/games/:id", get(get_game_session))
         // Attempts
         .route("/games/:id/attempt", post(submit_attempt))
+        .route("/games/:id/finish", post(finish_game_session))
         .with_state(pool)
 }
 
@@ -186,4 +187,26 @@ fn word_can_be_formed(word: &str, letters: &str) -> bool {
         }
     }
     true
+}
+
+async fn finish_game_session(
+    State(pool): State<PgPool>,
+    Path(session_id): Path<i32>,
+) -> Result<Json<GameSession>, (StatusCode, String)> {
+    let session = sqlx::query_as!(
+        GameSession,
+        r#"
+        UPDATE game_db.game_sessions
+        SET status = 'finished'
+        WHERE id = $1
+        RETURNING id, user_id, letters, score, status
+        "#,
+        session_id
+    )
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "Session introuvable".to_string()))?;
+
+    Ok(Json(session))
 }

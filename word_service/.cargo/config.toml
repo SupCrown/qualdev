@@ -1,2 +1,0 @@
-[env]
-PROTOC = { value = "tools/protoc/bin/protoc", relative = true }

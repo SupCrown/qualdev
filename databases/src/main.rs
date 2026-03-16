@@ -3,9 +3,7 @@ use dotenvy::dotenv;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 
-mod db;
-mod routes;
-mod models;
+use game_api::{db, routes}; // <-- IMPORTANT
 
 #[tokio::main]
 async fn main() {
