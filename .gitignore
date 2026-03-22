@@ -1,19 +1,15 @@
 /target
+
+
+# Added by cargo
+#
+# already existing elements were commented out
+
+#/target
 /processing_service/target
 /processing_service/*.lock
 /web_server/Cargo.lock
 *.xml
 tusmo.iml
-
-# Added by cargo
-#
-# already existing elements were commented out
-
-#/target
-
-
-# Added by cargo
-#
-# already existing elements were commented out
-
-#/target
+/word_service/target
+/databases/target
