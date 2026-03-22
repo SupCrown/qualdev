@@ -1,15 +1,15 @@
 /target
-/target/debug
-/databases/target
-/databases/target/debug
-databases/target/debug
-target/debug
-/web_server/target
-/word_service/target
-*.iml
+
 
 # Added by cargo
 #
 # already existing elements were commented out
 
 #/target
+/processing_service/target
+/processing_service/*.lock
+/web_server/Cargo.lock
+*.xml
+tusmo.iml
+/word_service/target
+/databases/target
