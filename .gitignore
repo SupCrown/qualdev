@@ -1,5 +1,9 @@
 /target
-
+/processing_service/target
+/processing_service/*.lock
+/web_server/Cargo.lock
+*.xml
+tusmo.iml
 
 # Added by cargo
 #
