@@ -38,7 +38,6 @@ pub struct ApiClient {
 }
 
 impl ApiClient {
-    /// base_url exemple: "http://localhost:3000/api"
     pub fn new(base_url: &str) -> Self {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
@@ -49,8 +48,6 @@ impl ApiClient {
     fn url(&self, path: &str) -> String {
         format!("{}/{}", self.base_url, path.trim_start_matches('/'))
     }
-
-    // ---- Users ----
 
     pub async fn create_user(&self, username: &str) -> ApiResult<User> {
         let resp = self
@@ -88,9 +85,6 @@ impl ApiClient {
 
         Ok(resp.error_for_status()?.json().await?)
     }
-
-    // ---- Games ----
-
     pub async fn create_game_session(&self, user_id: i32, letters: &str) -> ApiResult<GameSession> {
         let resp = self
             .client
@@ -123,9 +117,6 @@ impl ApiClient {
 
         Ok(resp.error_for_status()?.json().await?)
     }
-
-    // ---- Attempts (ton "guess") ----
-
     pub async fn submit_attempt(&self, session_id: i32, word: &str) -> ApiResult<Attempt> {
         let resp = self
             .client
