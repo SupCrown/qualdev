@@ -2,25 +2,32 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Tusmo – Interface</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
     <h1>UstOm</h1>
+    <p class="tagline">Proposez un mot : le serveur n’affiche que les lettres bien placées, le reste est masqué par des tirets.</p>
 
     <div class="input-zone">
+        <label class="sr-only" for="wordInput">Votre mot</label>
         <input
             type="text"
             id="wordInput"
-            placeholder="Entrez un mot"
+            placeholder="Votre mot"
+            autocomplete="off"
+            spellcheck="false"
+            maxlength="32"
         >
-        <button id="sendBtn">Envoyer</button>
+        <button type="button" id="sendBtn">Envoyer</button>
     </div>
 
-    <div class="response">
-        <p>Réponse serveur :</p>
-        <pre id="serverResponse"></pre>
+    <div class="feedback" aria-live="polite" aria-atomic="true">
+        <p class="feedback-label">Résultat</p>
+        <div id="resultDisplay" class="result-pattern">—</div>
+        <p id="errorLine" class="error-line" hidden></p>
     </div>
 
     <script src="app.js"></script>

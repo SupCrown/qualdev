@@ -15,7 +15,7 @@ pub struct GuessResponse {
 pub async fn guess(
     Json(payload): Json<GuessRequest>,
 ) -> Json<GuessResponse> {
-    let response = client::send(&payload.word);
+    let response = client::send(&payload.word).await;
 
     Json(GuessResponse {
         message: response.message,
