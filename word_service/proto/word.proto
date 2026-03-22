@@ -5,11 +5,21 @@ package word;
 service WordService {
   rpc GetRandomWord (GetRandomWordRequest)
       returns (GetRandomWordResponse);
+
+  rpc CheckWord (CheckWordRequest)
+      returns (CheckWordResponse);
 }
 
-message GetRandomWordRequest {
-}
+message GetRandomWordRequest {}
 
 message GetRandomWordResponse {
   string word = 1;
+}
+
+message CheckWordRequest {
+  string word = 1;
+}
+
+message CheckWordResponse {
+  bool is_valid = 1;
 }

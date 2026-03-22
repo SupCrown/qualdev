@@ -11,6 +11,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tonic = "0.14.2"
 tonic-prost = "0.14.2"
 unicode-normalization = "0.1"
+scraper = "0.19"
 
 [build-dependencies]
 tonic-prost-build = "0.14.2"

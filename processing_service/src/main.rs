@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tonic::transport::Channel;
 use word::word_service_client::WordServiceClient;
-use word::{GetRandomWordRequest, GetRandomWordResponse};
+use word::{GetRandomWordRequest, GetRandomWordResponse, CheckWordRequest, CheckWordResponse};
 
 const MAX_ATTEMPTS: i32 = 5;
 

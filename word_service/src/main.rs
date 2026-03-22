@@ -63,10 +63,26 @@ async fn fetch_and_normalize_word() -> Result<String, reqwest::Error> {
         reqwest::get(url).await?.json().await?;
     let mut count = response[0].name.chars().count();
 
-    while count > 10 {
+    while count > 10 && is_valid_word(&response).await? {
         response = reqwest::get(url).await?.json().await?;
         count = response[0].name.chars().count();
     }
 
     Ok(normalize(&response[0].name))
+}
+
+async fn is_valid_word(word: &str) -> Result<bool, reqwest::Error> {
+    let url = format!(
+        "https://scrabble123.fr/dictionnaire-du-scrabble/{}",
+        word.to_lowercase()
+    );
+
+    let body = reqwest::get(&url).await?.text().await?;
+
+    let body_lower = body.to_lowercase();
+
+    Ok(
+        body_lower.contains("acceptable dans le jeu scrabble")
+            || body_lower.contains("est acceptable")
+    )
 }
