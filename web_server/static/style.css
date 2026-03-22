@@ -49,7 +49,7 @@ h1 {
 }
 
 .board-wrap {
-    max-width: 380px;
+    max-width: min(100%, 36rem);
     margin: 0 auto 20px;
 }
 
@@ -61,8 +61,8 @@ h1 {
 
 .row {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
     gap: 6px;
+    /* grid-template-columns défini en JS selon wordLength */
 }
 
 .tile {
@@ -93,6 +93,18 @@ h1 {
 .tile.absent {
     background: #3a3a3c;
     border-color: #3a3a3c;
+}
+
+.tile.placeholder {
+    background: #1a1a1b;
+    border-color: #565758;
+    color: #565758;
+    font-weight: 700;
+}
+
+.tile.placeholder-letter {
+    color: #d7dadc;
+    border-color: #6b6b6e;
 }
 
 .input-zone {
@@ -156,6 +168,31 @@ button.secondary {
     margin-top: 14px;
     font-size: 0.9rem;
     color: #f7768e;
+}
+
+.toast {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(120%);
+    max-width: min(90vw, 22rem);
+    padding: 0.65rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: center;
+    color: #fff;
+    background: #b91c1c;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    z-index: 1000;
+    transition: transform 0.28s ease, opacity 0.28s ease;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.toast.toast-visible {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
 }
 
 .sr-only {

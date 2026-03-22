@@ -7,7 +7,9 @@ pub mod word {
 }
 
 use word::word_service_server::{WordService, WordServiceServer};
-use word::{GetRandomWordRequest, GetRandomWordResponse};
+use word::{
+    CheckWordRequest, CheckWordResponse, GetRandomWordRequest, GetRandomWordResponse,
+};
 
 struct WordServiceImpl;
 
@@ -22,6 +24,20 @@ impl WordService for WordServiceImpl {
             .map_err(|_| Status::unavailable("Failed to fetch word"))?;
 
         Ok(Response::new(GetRandomWordResponse { word }))
+    }
+
+    async fn check_word(
+        &self,
+        request: Request<CheckWordRequest>,
+    ) -> Result<Response<CheckWordResponse>, Status> {
+        let w = normalize(&request.into_inner().word);
+        if w.is_empty() {
+            return Ok(Response::new(CheckWordResponse { is_valid: false }));
+        }
+        let ok = is_valid_word(&w)
+            .await
+            .map_err(|_| Status::unavailable("échec vérification dictionnaire"))?;
+        Ok(Response::new(CheckWordResponse { is_valid: ok }))
     }
 }
 
@@ -63,7 +79,7 @@ async fn fetch_and_normalize_word() -> Result<String, reqwest::Error> {
         reqwest::get(url).await?.json().await?;
     let mut count = response[0].name.chars().count();
 
-    while count > 10 && is_valid_word(&response).await? {
+    while count > 8 {
         response = reqwest::get(url).await?.json().await?;
         count = response[0].name.chars().count();
     }
@@ -81,8 +97,9 @@ async fn is_valid_word(word: &str) -> Result<bool, reqwest::Error> {
 
     let body_lower = body.to_lowercase();
 
-    Ok(
-        body_lower.contains("acceptable dans le jeu scrabble")
-            || body_lower.contains("est acceptable")
-    )
+    // Phrase positive exacte (page valide). Éviter « acceptable dans le jeu scrabble » seul :
+    // les pages invalides contiennent « n'est pas acceptable dans le jeu Scrabble », qui inclut cette sous-chaîne.
+    let strict_ok = body_lower.contains("est acceptable dans le jeu scrabble");
+
+    Ok(strict_ok)
 }

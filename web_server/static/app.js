@@ -7,11 +7,33 @@ const sendBtn = document.getElementById("sendBtn");
 const newGameBtn = document.getElementById("newGameBtn");
 const errorLine = document.getElementById("errorLine");
 const statusBanner = document.getElementById("statusBanner");
+const toastEl = document.getElementById("toast");
+
+let toastTimer = null;
+
+function showToast(message) {
+    if (!toastEl) return;
+    toastEl.textContent = message;
+    toastEl.hidden = false;
+    requestAnimationFrame(() => {
+        toastEl.classList.add("toast-visible");
+    });
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+        toastEl.classList.remove("toast-visible");
+        toastTimer = setTimeout(() => {
+            toastEl.hidden = true;
+            toastEl.textContent = "";
+        }, 300);
+    }, 3200);
+}
 
 let sessionId = null;
 let wordLength = 5;
 let maxAttempts = 5;
 let gameStatus = "loading";
+/** Première lettre affichée dans la ligne d’indices (début de partie). */
+let firstLetterHint = null;
 
 function showError(msg) {
     errorLine.hidden = false;
@@ -35,6 +57,11 @@ function setBanner(text, kind) {
     statusBanner.className = "status-banner " + (kind || "");
 }
 
+function setRowColumns(row) {
+    if (!wordLength || wordLength < 1) return;
+    row.style.gridTemplateColumns = `repeat(${wordLength}, minmax(0, 1fr))`;
+}
+
 function tileClass(fb) {
     if (fb === "correct") return "tile correct";
     if (fb === "present") return "tile present";
@@ -43,9 +70,31 @@ function tileClass(fb) {
 
 function renderBoard(history) {
     board.innerHTML = "";
-    for (const attempt of history) {
+    const hist = history || [];
+    const showLengthHint =
+        gameStatus === "active" && hist.length === 0 && wordLength > 0;
+
+    if (showLengthHint) {
+        const hintRow = document.createElement("div");
+        hintRow.className = "row row-length-hint";
+        hintRow.setAttribute("aria-label", "Nombre de lettres à trouver");
+        for (let i = 0; i < wordLength; i++) {
+            const cell = document.createElement("div");
+            const showLetter = i === 0 && firstLetterHint;
+            cell.className = showLetter
+                ? "tile placeholder placeholder-letter"
+                : "tile placeholder";
+            cell.textContent = showLetter ? firstLetterHint : "—";
+            hintRow.appendChild(cell);
+        }
+        setRowColumns(hintRow);
+        board.appendChild(hintRow);
+    }
+
+    for (const attempt of hist) {
         const row = document.createElement("div");
         row.className = "row";
+        setRowColumns(row);
         const letters = [...attempt.word];
         const fb = attempt.feedback || [];
         for (let i = 0; i < wordLength; i++) {
@@ -63,7 +112,13 @@ function applyUiFromState(data) {
     wordLength = data.word_length || 5;
     maxAttempts = data.max_attempts || 5;
     gameStatus = data.status || "active";
+    firstLetterHint =
+        data.first_letter_hint && String(data.first_letter_hint).length > 0
+            ? String(data.first_letter_hint).charAt(0)
+            : null;
     input.maxLength = wordLength;
+    input.placeholder =
+        wordLength > 0 ? wordLength + " lettres" : "Votre mot";
 
     if (sessionId != null) {
         localStorage.setItem(LS_SESSION, String(sessionId));
@@ -79,7 +134,13 @@ function applyUiFromState(data) {
     if (gameStatus === "won") {
         setBanner("Bravo — mot trouvé !", "win");
     } else if (gameStatus === "lost") {
-        setBanner("Perdu — 5 essais épuisés.", "lose");
+        const secret = data.target_word;
+        setBanner(
+            secret
+                ? "Perdu — le mot était « " + secret + " »."
+                : "Perdu — 5 essais épuisés.",
+            "lose"
+        );
     } else {
         setBanner("", null);
     }
@@ -106,6 +167,7 @@ async function apiStart() {
         max_attempts: data.max_attempts,
         status: data.status || "active",
         history: data.history || [],
+        first_letter_hint: data.first_letter_hint,
     });
 }
 
@@ -131,7 +193,10 @@ async function apiGuess(word) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-        throw new Error(data.error || data.message || res.statusText);
+        const err = new Error(data.error || data.message || res.statusText);
+        err.code = data.code;
+        err.status = res.status;
+        throw err;
     }
     applyUiFromState(data);
 }
@@ -169,12 +234,20 @@ async function sendWord() {
     }
     clearError();
     sendBtn.disabled = true;
+    let keepInput = false;
     try {
         await apiGuess(raw);
     } catch (e) {
-        showError(String(e.message || e));
+        if (e.code === "not_in_dictionary") {
+            showToast("Ce mot n'est pas dans le dictionnaire.");
+            keepInput = true;
+        } else {
+            showError(String(e.message || e));
+        }
     } finally {
-        input.value = "";
+        if (!keepInput) {
+            input.value = "";
+        }
         if (gameStatus === "active") {
             sendBtn.disabled = false;
             input.focus();

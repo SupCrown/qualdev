@@ -1,1 +1,5 @@
-{"sessionId":"4b8f99","hypothesisId":"H1","location":"processing_service/main.rs","message":"router built ok","data":{"route_state":"/api/game/state/{session_id}"},"timestamp":1774185391860}
+{"sessionId":"4b8f99","hypothesisId":"H5","location":"word_service/is_valid_word","message":"scrabble html signals","data":{"word_len":8,"strict_ok":false,"legacy_substring_hit":true},"timestamp":1774199738086}
+{"sessionId":"4b8f99","hypothesisId":"H5","location":"word_service/is_valid_word","message":"scrabble html signals","data":{"word_len":8,"strict_ok":true,"legacy_substring_hit":true},"timestamp":1774199756287}
+{"sessionId":"4b8f99","hypothesisId":"H5","location":"word_service/is_valid_word","message":"scrabble html signals","data":{"word_len":8,"strict_ok":false,"legacy_substring_hit":true},"timestamp":1774199781568}
+{"sessionId":"4b8f99","hypothesisId":"H5","location":"word_service/is_valid_word","message":"scrabble html signals","data":{"word_len":8,"strict_ok":false,"legacy_substring_hit":true},"timestamp":1774199798063}
+{"sessionId":"4b8f99","hypothesisId":"H5","location":"word_service/is_valid_word","message":"scrabble html signals","data":{"word_len":8,"strict_ok":true,"legacy_substring_hit":true},"timestamp":1774199817517}

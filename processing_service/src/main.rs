@@ -20,9 +20,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tonic::transport::Channel;
 use word::word_service_client::WordServiceClient;
-use word::{GetRandomWordRequest, GetRandomWordResponse, CheckWordRequest, CheckWordResponse};
+use word::{CheckWordRequest, GetRandomWordRequest, GetRandomWordResponse};
 
 const MAX_ATTEMPTS: i32 = 5;
+const TARGET_LEN_MIN: usize = 4;
+const TARGET_LEN_MAX: usize = 8;
 
 #[derive(Clone)]
 struct AppState {
@@ -49,6 +51,9 @@ struct StartResponse {
     max_attempts: u32,
     history: Vec<AttemptDto>,
     status: String,
+    /// Première lettre du mot (indice au début de partie).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first_letter_hint: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -65,23 +70,32 @@ struct GameStateBody {
     attempts_used: u32,
     status: String,
     history: Vec<AttemptDto>,
+    /// Mot secret révélé uniquement en cas de défaite (`status == "lost"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_word: Option<String>,
+    /// Première lettre tant qu’aucune tentative n’a été jouée.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first_letter_hint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
 
-async fn fetch_five_letter_word(
+/// Mot aléatoire entre 4 et 8 lettres (selon word_service), en majuscules ASCII.
+async fn fetch_random_target_word(
     client: &mut WordServiceClient<Channel>,
 ) -> Result<String, tonic::Status> {
-    for _ in 0..64 {
+    for _ in 0..128 {
         let response: tonic::Response<GetRandomWordResponse> =
             client.get_random_word(GetRandomWordRequest {}).await?;
         let w = response.into_inner().word;
-        if w.chars().count() == 5 {
-            return Ok(w.chars().map(|c| c.to_ascii_uppercase()).collect());
+        let normalized: String = w.chars().map(|c| c.to_ascii_uppercase()).collect();
+        let n = normalized.chars().count();
+        if (TARGET_LEN_MIN..=TARGET_LEN_MAX).contains(&n) {
+            return Ok(normalized);
         }
     }
     Err(tonic::Status::resource_exhausted(
-        "impossible d'obtenir un mot de 5 lettres depuis word_service",
+        "impossible d'obtenir un mot de 4 à 8 lettres depuis word_service",
     ))
 }
 
@@ -107,6 +121,19 @@ async fn build_state(
 ) -> Result<GameStateBody, String> {
     let rows = list_attempts(pool, session.id).await.map_err(|e| e.to_string())?;
     let history = history_from_rows(&rows)?;
+    let target_word = (session.status == "lost").then(|| session.letters.clone());
+
+    let first_letter_hint =
+        (session.status == "active" && history.is_empty()).then(|| {
+            session
+                .letters
+                .chars()
+                .next()
+                .map(|c| c.to_string())
+                .unwrap_or_default()
+        });
+    let first_letter_hint = first_letter_hint.filter(|s| !s.is_empty());
+
     Ok(GameStateBody {
         session_id: session.id,
         word_length: session.letters.chars().count(),
@@ -114,6 +141,8 @@ async fn build_state(
         attempts_used: session.score as u32,
         status: session.status.clone(),
         history,
+        target_word,
+        first_letter_hint,
         error: err,
     })
 }
@@ -137,7 +166,7 @@ async fn post_start(
         })?;
 
     let mut client = state.grpc.clone();
-    let target = fetch_five_letter_word(&mut client).await.map_err(|e| {
+    let target = fetch_random_target_word(&mut client).await.map_err(|e| {
         (
             StatusCode::BAD_GATEWAY,
             Json(json!({ "error": format!("word_service: {e}") })),
@@ -153,6 +182,8 @@ async fn post_start(
             )
         })?;
 
+    let first_letter_hint = target.chars().next().map(|c| c.to_string());
+
     Ok(Json(StartResponse {
         player_username,
         session_id,
@@ -160,6 +191,7 @@ async fn post_start(
         max_attempts: MAX_ATTEMPTS as u32,
         history: vec![],
         status: "active".to_string(),
+        first_letter_hint,
     }))
 }
 
@@ -237,6 +269,31 @@ async fn post_guess(
                     "le mot doit faire {} lettres",
                     target.chars().count()
                 )
+            })),
+        ));
+    }
+
+    let mut grpc = state.grpc.clone();
+    let dict_ok = grpc
+        .check_word(CheckWordRequest {
+            word: guess_upper.clone(),
+        })
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({ "error": format!("dictionnaire (word_service): {e}") })),
+            )
+        })?
+        .into_inner()
+        .is_valid;
+
+    if !dict_ok {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "ce mot n'existe pas dans le dictionnaire",
+                "code": "not_in_dictionary"
             })),
         ));
     }
