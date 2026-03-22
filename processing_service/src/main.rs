@@ -1,96 +1,348 @@
+mod db;
+mod game_logic;
+
+pub mod word {
+    tonic::include_proto!("word");
+}
+
 use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    routing::{get, post},
     Json, Router,
-    extract::State,
-    routing::post,
 };
+use db::{
+    connect, get_or_create_user, get_session, insert_attempt, insert_session, list_attempts,
+    update_session_progress, AttemptRow, SessionRow,
+};
+use game_logic::{compute_feedback, is_win};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use serde_json::{json, Value};
+use tonic::transport::Channel;
+use word::word_service_client::WordServiceClient;
+use word::{GetRandomWordRequest, GetRandomWordResponse};
 
-/// Mot secret à deviner (remplacé plus tard par l’API / BDD).
-/// Surcharge possible : `TUSMO_TARGET_WORD=CHIEN cargo run`
-fn target_word() -> String {
-    std::env::var("TUSMO_TARGET_WORD").unwrap_or_else(|_| "TUSMO".to_string())
-}
-
-/// Pour chaque position : la lettre si elle correspond au mot cible, sinon `-`.
-fn mask_guess(guess: &str, target: &str) -> Result<String, &'static str> {
-    let g: Vec<char> = guess.chars().collect();
-    let t: Vec<char> = target.chars().collect();
-    if g.len() != t.len() {
-        return Err("longueur différente du mot cible");
-    }
-    let mut out = String::with_capacity(g.len() * 2); // lettre + éventuellement tiret entre
-    for (i, (&gc, &tc)) in g.iter().zip(t.iter()).enumerate() {
-        if i > 0 {
-            out.push('-');
-        }
-        if gc.eq_ignore_ascii_case(&tc) {
-            out.push(tc.to_ascii_uppercase());
-        } else {
-            out.push('-');
-        }
-    }
-    Ok(out)
-}
+const MAX_ATTEMPTS: i32 = 5;
 
 #[derive(Clone)]
 struct AppState {
-    target: Arc<str>,
+    pool: sqlx::PgPool,
+    grpc: WordServiceClient<Channel>,
+}
+
+#[derive(Deserialize)]
+struct StartRequest {
+    username: Option<String>,
+}
+
+#[derive(Serialize)]
+struct AttemptDto {
+    word: String,
+    feedback: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct StartResponse {
+    player_username: String,
+    session_id: i32,
+    word_length: usize,
+    max_attempts: u32,
+    history: Vec<AttemptDto>,
+    status: String,
 }
 
 #[derive(Deserialize)]
 struct GuessRequest {
+    session_id: i32,
     word: String,
 }
 
 #[derive(Serialize)]
-struct GuessResponse {
-    message: String,
+struct GameStateBody {
+    session_id: i32,
+    word_length: usize,
+    max_attempts: u32,
+    attempts_used: u32,
+    status: String,
+    history: Vec<AttemptDto>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
-async fn guess(
-    State(state): State<AppState>,
-    Json(payload): Json<GuessRequest>,
-) -> Json<GuessResponse> {
-    let message = match mask_guess(&payload.word, &state.target) {
-        Ok(masked) => masked,
-        Err(e) => format!("erreur: {e}"),
+async fn fetch_five_letter_word(
+    client: &mut WordServiceClient<Channel>,
+) -> Result<String, tonic::Status> {
+    for _ in 0..64 {
+        let response: tonic::Response<GetRandomWordResponse> =
+            client.get_random_word(GetRandomWordRequest {}).await?;
+        let w = response.into_inner().word;
+        if w.chars().count() == 5 {
+            return Ok(w.chars().map(|c| c.to_ascii_uppercase()).collect());
+        }
+    }
+    Err(tonic::Status::resource_exhausted(
+        "impossible d'obtenir un mot de 5 lettres depuis word_service",
+    ))
+}
+
+fn row_to_dto(r: &AttemptRow) -> Result<AttemptDto, String> {
+    let fb: Vec<String> = match &r.feedback {
+        Some(j) => serde_json::from_value(j.0.clone()).map_err(|e| e.to_string())?,
+        None => Vec::new(),
     };
-    Json(GuessResponse { message })
+    Ok(AttemptDto {
+        word: r.word.clone(),
+        feedback: fb,
+    })
+}
+
+fn history_from_rows(rows: &[AttemptRow]) -> Result<Vec<AttemptDto>, String> {
+    rows.iter().map(row_to_dto).collect()
+}
+
+async fn build_state(
+    pool: &sqlx::PgPool,
+    session: &SessionRow,
+    err: Option<String>,
+) -> Result<GameStateBody, String> {
+    let rows = list_attempts(pool, session.id).await.map_err(|e| e.to_string())?;
+    let history = history_from_rows(&rows)?;
+    Ok(GameStateBody {
+        session_id: session.id,
+        word_length: session.letters.chars().count(),
+        max_attempts: MAX_ATTEMPTS as u32,
+        attempts_used: session.score as u32,
+        status: session.status.clone(),
+        history,
+        error: err,
+    })
+}
+
+async fn post_start(
+    State(state): State<AppState>,
+    Json(body): Json<StartRequest>,
+) -> Result<Json<StartResponse>, (StatusCode, Json<Value>)> {
+    let player_username = body
+        .username
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| format!("player_{}", uuid::Uuid::new_v4()));
+
+    let user_id = get_or_create_user(&state.pool, &player_username)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
+
+    let mut client = state.grpc.clone();
+    let target = fetch_five_letter_word(&mut client).await.map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": format!("word_service: {e}") })),
+        )
+    })?;
+
+    let session_id = insert_session(&state.pool, user_id, &target)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
+
+    Ok(Json(StartResponse {
+        player_username,
+        session_id,
+        word_length: target.chars().count(),
+        max_attempts: MAX_ATTEMPTS as u32,
+        history: vec![],
+        status: "active".to_string(),
+    }))
+}
+
+async fn get_state(
+    State(state): State<AppState>,
+    Path(session_id): Path<i32>,
+) -> Result<Json<GameStateBody>, (StatusCode, Json<Value>)> {
+    let session = get_session(&state.pool, session_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "session introuvable" })),
+        ))?;
+
+    let body = build_state(&state.pool, &session, None)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
+
+    Ok(Json(body))
+}
+
+async fn post_guess(
+    State(state): State<AppState>,
+    Json(body): Json<GuessRequest>,
+) -> Result<Json<GameStateBody>, (StatusCode, Json<Value>)> {
+    let guess_raw = body.word.trim();
+    if guess_raw.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "mot vide" })),
+        ));
+    }
+
+    let session = get_session(&state.pool, body.session_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "session introuvable" })),
+        ))?;
+
+    if session.status != "active" {
+        let msg = match session.status.as_str() {
+            "won" => "partie déjà gagnée — lancez une nouvelle partie",
+            "lost" => "partie déjà perdue — lancez une nouvelle partie",
+            _ => "partie terminée",
+        };
+        return Err((StatusCode::BAD_REQUEST, Json(json!({ "error": msg }))));
+    }
+
+    let target = &session.letters;
+    let guess_upper: String = guess_raw.chars().map(|c| c.to_ascii_uppercase()).collect();
+
+    if guess_upper.chars().count() != target.chars().count() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!(
+                    "le mot doit faire {} lettres",
+                    target.chars().count()
+                )
+            })),
+        ));
+    }
+
+    let feedback_vec = compute_feedback(&guess_upper, target).ok_or((
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "error": "comparaison impossible" })),
+    ))?;
+
+    let feedback_json = serde_json::to_value(&feedback_vec).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    insert_attempt(
+        &state.pool,
+        session.id,
+        &guess_upper,
+        &feedback_json,
+        true,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    let new_score = session.score + 1;
+    let won = is_win(&guess_upper, target);
+    let lost = !won && new_score >= MAX_ATTEMPTS;
+
+    let new_status = if won {
+        "won"
+    } else if lost {
+        "lost"
+    } else {
+        "active"
+    };
+
+    update_session_progress(&state.pool, session.id, new_score, new_status)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
+
+    let updated = get_session(&state.pool, session.id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?
+        .expect("session exists");
+
+    let out = build_state(&state.pool, &updated, None)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
+
+    Ok(Json(out))
 }
 
 #[tokio::main]
 async fn main() {
-    let target = target_word();
-    let addr = std::env::var("PROCESSING_BIND").unwrap_or_else(|_| "127.0.0.1:3001".to_string());
+    dotenvy::dotenv().ok();
+
+    let grpc_url = std::env::var("WORD_SERVICE_GRPC")
+        .unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+
+    let grpc = WordServiceClient::connect(grpc_url.clone())
+        .await
+        .unwrap_or_else(|e| {
+            panic!("connexion word_service ({grpc_url}) impossible: {e}");
+        });
+
+    let pool = connect().await;
 
     let state = AppState {
-        target: Arc::from(target.into_boxed_str()),
+        pool,
+        grpc,
     };
-    let target_len = state.target.len();
+
+    let addr =
+        std::env::var("PROCESSING_BIND").unwrap_or_else(|_| "127.0.0.1:3001".to_string());
 
     let app = Router::new()
-        .route("/api/guess", post(guess))
+        .route("/api/game/start", post(post_start))
+        .route("/api/game/state/{session_id}", get(get_state))
+        .route("/api/guess", post(post_guess))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind processing_service");
-    println!("processing_service écoute sur http://{addr} (POST /api/guess)");
-    println!("mot cible (longueur {target_len}) — variable TUSMO_TARGET_WORD pour le changer");
+    let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind");
+    println!("processing_service → http://{addr}");
+    println!("PostgreSQL via DATABASE_URL · word_service gRPC: {grpc_url}");
 
     axum::serve(listener, app).await.expect("serve");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::mask_guess;
-
-    #[test]
-    fn mask_matches_positions() {
-        assert_eq!(mask_guess("tusmx", "tusmo").unwrap(), "T-U-S-M--");
-    }
-
-    #[test]
-    fn wrong_length_errors() {
-        assert!(mask_guess("ab", "abc").is_err());
-    }
 }

@@ -16,7 +16,7 @@ async fn main() {
 
     println!("Serveur lancé sur http://127.0.0.1:3000");
     println!(
-        "Appels vers le traitement : PROCESSING_URL ou défaut http://127.0.0.1:3001/api/guess"
+        "Processing (proxy) : PROCESSING_BASE ou défaut http://127.0.0.1:3001"
     );
 
     axum::serve(listener, app).await.unwrap();
