@@ -1,3 +1,5 @@
+//! Serveur web : fichiers statiques (`static/`) et proxy des routes `/api/*` vers `processing_service`.
+
 use axum::Router;
 use tower_http::services::ServeDir;
 

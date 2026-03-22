@@ -1,3 +1,6 @@
+//! **word_service** : microservice gRPC (`GetRandomWord`, `CheckWord`) pour fournir des mots
+//! normalisés et valider les tentatives via une source lexicographique externe (HTTP).
+
 use serde::Deserialize;
 use unicode_normalization::UnicodeNormalization;
 use tonic::{transport::Server, Request, Response, Status};
@@ -70,6 +73,21 @@ fn normalize(word: &str) -> String {
         .collect();
 
     filtered.as_str().to_uppercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize;
+
+    #[test]
+    fn normalize_ascii_uppercase() {
+        assert_eq!(normalize("chat"), "CHAT");
+    }
+
+    #[test]
+    fn normalize_strips_accents_to_ascii() {
+        assert_eq!(normalize("été"), "ETE");
+    }
 }
 
 async fn fetch_and_normalize_word() -> Result<String, reqwest::Error> {

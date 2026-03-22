@@ -1,3 +1,7 @@
+//! Accès PostgreSQL au schéma `game_db` (utilisateurs, sessions, tentatives).
+//!
+//! L’URL par défaut peut être surchargée par la variable d’environnement `DATABASE_URL`.
+
 use serde_json::Value;
 use sqlx::{types::Json, PgPool};
 

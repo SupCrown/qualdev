@@ -1,5 +1,9 @@
+//! Serveur HTTP de logique de jeu Tusmo : sessions, tentatives, validation dictionnaire (gRPC),
+//! persistance `game_db` (PostgreSQL).
+//!
+//! Voir [`processing_service::game_logic`] pour les règles de feedback et les tests associés.
+
 mod db;
-mod game_logic;
 
 pub mod word {
     tonic::include_proto!("word");
@@ -15,7 +19,7 @@ use db::{
     connect, get_or_create_user, get_session, insert_attempt, insert_session, list_attempts,
     update_session_progress, AttemptRow, SessionRow,
 };
-use game_logic::{compute_feedback, is_win};
+use processing_service::game_logic::{compute_feedback, is_win};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tonic::transport::Channel;
