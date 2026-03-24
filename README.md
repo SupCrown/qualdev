@@ -1,8 +1,8 @@
-# UsTom / Tusmo — jeu de mots distribué (Rust)
+# UsTom / Tusmo — jeu de mots (Rust)
 
-Projet type **Wordle / Tusmo** : feedback couleur par lettre, mots de **4 à 8** lettres, stack **Rust** (Axum, SQLx, tonic), **PostgreSQL** pour les profils / parties, **gRPC** vers un service « mots ». L’interface est du **HTML/CSS/JS** statique servi par `web_server`, qui **proxy** tout le JSON vers `processing_service`.
+Projet type **Wordle / Tusmo** : mots de **4 à 8** lettres, stack **Rust** (Axum, SQLx, tonic), **PostgreSQL** pour les profils / parties, **gRPC** vers un service « mots ». L’interface est du **HTML/CSS/JS** statique servi par `web_server`, qui communique avec `processing_service`.
 
-> **En pratique** : on lance d’abord le backend (`word_service` + `processing_service`), puis un ou plusieurs `web_server` sur les ports qu’on veut — chaque frontal pointe vers le même `PROCESSING_BASE` si on veut partager la même instance de logique.
+> **En pratique** : on lance d’abord le backend (`word_service` + `processing_service`), puis un ou plusieurs `web_server` sur les ports qu’on veut — chaque front pointe vers le même `PROCESSING_BASE`.
 
 ---
 
@@ -25,25 +25,23 @@ Projet type **Wordle / Tusmo** : feedback couleur par lettre, mots de **4 à 8**
 
 ```text
 ┌──────────────┐   HTTP (fichiers statiques + /api/*)   ┌──────────────┐
-│  Navigateur  │ ◄──────────────────────────────────► │  web_server  │
-│              │                                       │  (WEB_BIND)  │
-└──────────────┘                                       └──────┬───────┘
-                                                              │ HTTP
-                                                              │ PROCESSING_BASE
-                                                              ▼
+│  Navigateur  │ ◄──────────────────────────────────►   │  web_server  │
+│              │                                        │  (WEB_BIND)  │
+└──────────────┘                                        └──────┬───────┘
+                                                               │ web socket
+                                                               │ 
+                                                               ▼
                                                        ┌──────────────┐
                                                        │ processing_  │
-                                                       │   service    │
-                                                       │ (PROCESSING_ │
-                                                       │   BIND)      │
+                                                       │   service    │     
                                                        └──────┬───────┘
-                              ┌───────────────────────────────┼───────────────────────┐
-                              │ gRPC                          │ SQL                     │
-                              ▼                               ▼                       │
-                       ┌──────────────┐              ┌──────────────┐                │
-                       │ word_service │              │ PostgreSQL   │                │
-                       │   (gRPC)     │              │  game_db     │                │
-                       └──────────────┘              └──────────────┘                │
+                              ┌───────────────────────────────┼
+                              │ gRPC                          │ SQL                  
+                              ▼                               ▼                      
+                       ┌──────────────┐              ┌──────────────┐                
+                       │ word_service │              │ PostgreSQL   │                
+                       │   (gRPC)     │              │  game_db     │                
+                       └──────────────┘              └──────────────┘                
 ```
 
 | Composant | Rôle |
@@ -91,7 +89,7 @@ Le dossier **`databases/`** (API SQLx d’exemple) est optionnel ; le jeu princi
 | **`WORD_SERVICE_GRPC`** | `processing_service` | URL gRPC du `word_service`, ex. `http://127.0.0.1:50051`. |
 | **`PROCESSING_BIND`** | `processing_service` | Adresse d’écoute HTTP, ex. `127.0.0.1:3001`. |
 | **`PROCESSING_BASE`** | `web_server` | URL du `processing_service` pour le proxy, ex. `http://127.0.0.1:3001`. |
-| **`WEB_BIND`** | `web_server` | Adresse d’écoute du frontal, ex. `127.0.0.1:3000`. |
+| **`WEB_BIND`** | `web_server` | Adresse d’écoute du front, ex. `127.0.0.1:3000`. |
 
 ---
 
@@ -116,7 +114,7 @@ Variables optionnelles : `WORD_HOST`, `WORD_PORT`, `PROCESSING_HOST`, `PROCESSIN
 
 ### 2. `run-web.sh` — interface sur le port voulu
 
-Lance **un** `web_server`. Sans argument : **`127.0.0.1:3000`**. Sinon : port seul (`8080` → `127.0.0.1:8080`) ou bind complet (`0.0.0.0:9000`).
+Lance **un** `web_server`. Sans argument : **`127.0.0.1:3000`**. Sinon : port seul (`8080` → `127.0.0.1:8080`) ou bind complet (`0.0.0.0:9000`). (note : lancer sur un port qui existe déjà fera planter. Le port 3001 est interdit aussi)
 
 ```bash
 ./run-web.sh           # défaut : 127.0.0.1:3000
@@ -207,10 +205,7 @@ Les tests unitaires du feedback Tusmo/Wordle sont dans `processing_service/src/g
 
 - Routes **Axum 0.8** : paramètres de chemin en `{id}`, pas `:id`.
 - Génération **gRPC** sans `protoc` système : `protoc-bin-vendored` dans le `build.rs` du `word_service` / client.
-- **`hidden` + CSS** : si un overlay a `display: flex` en CSS, prévoir `.overlay[hidden] { display: none !important; }` pour que l’attribut HTML masque vraiment la modale.
+- **`hidden` + CSS** : si un overlay a `display: flex` en CSS, prévoir `.overlay[hidden] { display: none !important; }` pour que l’attribut HTML masque vraiment la modale mais je comprend pas pk c'est claude qui a trouvé.
 
 ---
 
-## Licence / contexte
-
-Projet pédagogique (architecture distribuée, plusieurs langages / protocoles). Adapter `DATABASE_URL` et les ports à ton environnement avant une démo ou un rendu.
