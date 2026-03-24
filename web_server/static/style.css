@@ -206,3 +206,206 @@ button.secondary {
     white-space: nowrap;
     border: 0;
 }
+
+.overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 900;
+    padding: 1rem;
+}
+
+/* `hidden` + `.overlay { display: flex }` : forcer la disparition quand l’overlay est masqué. */
+.overlay[hidden] {
+    display: none !important;
+    pointer-events: none;
+}
+
+.game-panel[hidden] {
+    display: none !important;
+}
+
+.mode-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 1rem;
+}
+
+.mode-btn {
+    flex: 1 1 8rem;
+    min-width: 7rem;
+}
+
+.join-row {
+    margin-top: 0.75rem;
+    font-size: 0.85rem;
+    color: #818384;
+}
+
+.join-row label {
+    display: block;
+    margin-bottom: 6px;
+}
+
+.login-card.mode-card {
+    max-width: 26rem;
+}
+
+.login-card {
+    background: #1a1a1b;
+    border: 1px solid #3a3a3c;
+    border-radius: 12px;
+    padding: 1.25rem 1.35rem;
+    max-width: 22rem;
+    width: 100%;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.login-card h2 {
+    margin: 0 0 0.5rem;
+    font-size: 1.15rem;
+    text-align: center;
+}
+
+.login-hint {
+    font-size: 0.85rem;
+    color: #818384;
+    margin: 0 0 1rem;
+    line-height: 1.45;
+}
+
+.login-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    align-items: center;
+}
+
+.login-error {
+    margin-top: 0.75rem;
+    margin-bottom: 0;
+}
+
+.profile-bar,
+.cycle-info {
+    text-align: center;
+    font-size: 0.9rem;
+    color: #b0b0b0;
+    max-width: 40rem;
+    margin: 0 auto 8px;
+    line-height: 1.4;
+}
+
+.cycle-info {
+    color: #6aaa64;
+    font-weight: 600;
+    margin-bottom: 14px;
+}
+
+.layout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    align-items: flex-start;
+    justify-content: center;
+    max-width: 52rem;
+    margin: 0 auto;
+}
+
+.main-col {
+    flex: 1 1 20rem;
+    min-width: 0;
+}
+
+.leaderboard-aside {
+    flex: 0 1 14rem;
+    background: #1a1a1b;
+    border: 1px solid #3a3a3c;
+    border-radius: 10px;
+    padding: 12px 14px 16px;
+}
+
+.leaderboard-title {
+    margin: 0 0 6px;
+    font-size: 1rem;
+    text-align: center;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #d7dadc;
+}
+
+.leaderboard-hint {
+    margin: 0 0 10px;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    color: #818384;
+}
+
+.leaderboard-list {
+    margin: 0;
+    padding-left: 1.1rem;
+    font-size: 0.9rem;
+    line-height: 1.65;
+}
+
+.leaderboard-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.lb-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lb-score {
+    font-weight: 800;
+    color: #6aaa64;
+}
+
+.leaderboard-empty {
+    list-style: none;
+    margin-left: -1.1rem;
+    color: #565758;
+}
+
+.attempt-who {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #818384;
+    margin: 8px 0 2px;
+}
+
+.change-player-wrap {
+    text-align: center;
+    margin-top: 10px;
+}
+
+button.linkish {
+    background: none;
+    border: none;
+    color: #6aaa64;
+    text-decoration: underline;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 4px 8px;
+    cursor: pointer;
+}
+
+button.linkish:hover:not(:disabled) {
+    filter: brightness(1.15);
+}
+
+.toast.toast-success {
+    background: #15803d;
+}

@@ -1,32 +1,39 @@
-//! Serveur HTTP de logique de jeu Tusmo : sessions, tentatives, validation dictionnaire (gRPC),
-//! persistance `game_db` (PostgreSQL).
-//!
-//! Voir [`processing_service::game_logic`] pour les règles de feedback et les tests associés.
+//! Binaire HTTP du jeu : profils, mode **solo** (6 tentatives / mot, série persistante),
+//! mode **multi** (code = `id` PostgreSQL, course au 5ᵉ mot).
+//! Le gros du calcul « Wordle » est dans `game_logic` ; ici c’est surtout de l’orchestration + SQL + gRPC.
 
 mod db;
+mod multi;
+mod solo;
 
 pub mod word {
     tonic::include_proto!("word");
 }
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
 use db::{
-    connect, get_or_create_user, get_session, insert_attempt, insert_session, list_attempts,
-    update_session_progress, AttemptRow, SessionRow,
+    connect, get_or_create_user, get_user_profile, insert_party, migrate_best_score_column,
+    migrate_parties_table, party_exists, top_leaderboard, update_best_score_if_better,
+    LeaderRow,
 };
-use processing_service::game_logic::{compute_feedback, is_win};
+use multi::{
+    shared_parties, MultiWordsQuery, OtherScoreDto, PartyInner, PrivateAttemptDto, SharedParties,
+    MULTI_WORDS_TO_WIN,
+};
+use processing_service::game_logic::{compute_feedback, is_win, LetterFeedback};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use solo::{shared_solo, SoloAttemptDto, SoloSession, SharedSolo, SOLO_MAX_ATTEMPTS};
 use tonic::transport::Channel;
+use uuid::Uuid;
 use word::word_service_client::WordServiceClient;
 use word::{CheckWordRequest, GetRandomWordRequest, GetRandomWordResponse};
 
-const MAX_ATTEMPTS: i32 = 5;
 const TARGET_LEN_MIN: usize = 4;
 const TARGET_LEN_MAX: usize = 8;
 
@@ -34,57 +41,105 @@ const TARGET_LEN_MAX: usize = 8;
 struct AppState {
     pool: sqlx::PgPool,
     grpc: WordServiceClient<Channel>,
+    solo: SharedSolo,
+    parties: SharedParties,
 }
 
 #[derive(Deserialize)]
-struct StartRequest {
-    username: Option<String>,
+struct ProfileRequest {
+    username: String,
 }
 
 #[derive(Serialize)]
-struct AttemptDto {
-    word: String,
-    feedback: Vec<String>,
+struct ProfileResponse {
+    user_id: i32,
+    username: String,
+    best_score: i32,
 }
 
-#[derive(Serialize)]
-struct StartResponse {
-    player_username: String,
-    session_id: i32,
-    word_length: usize,
-    max_attempts: u32,
-    history: Vec<AttemptDto>,
-    status: String,
-    /// Première lettre du mot (indice au début de partie).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    first_letter_hint: Option<String>,
-}
+// ---- Solo ----
 
 #[derive(Deserialize)]
-struct GuessRequest {
-    session_id: i32,
-    word: String,
+struct SoloStartRequest {
+    user_id: i32,
 }
 
 #[derive(Serialize)]
-struct GameStateBody {
-    session_id: i32,
+struct SoloStateResponse {
+    session_id: String,
     word_length: usize,
     max_attempts: u32,
     attempts_used: u32,
-    status: String,
-    history: Vec<AttemptDto>,
-    /// Mot secret révélé uniquement en cas de défaite (`status == "lost"`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target_word: Option<String>,
-    /// Première lettre tant qu’aucune tentative n’a été jouée.
-    #[serde(skip_serializing_if = "Option::is_none")]
     first_letter_hint: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
+    generation: u64,
+    history: Vec<SoloAttemptDto>,
+    current_streak: i32,
+    leaderboard: Vec<LeaderRow>,
 }
 
-/// Mot aléatoire entre 4 et 8 lettres (selon word_service), en majuscules ASCII.
+#[derive(Deserialize)]
+struct SoloGuessRequest {
+    session_id: String,
+    user_id: i32,
+    word: String,
+}
+
+#[derive(Serialize)]
+struct SoloGuessResponse {
+    won_word: bool,
+    lost_word: bool,
+    state: SoloStateResponse,
+}
+
+// ---- Multi ----
+
+#[derive(Deserialize)]
+struct MultiHostRequest {
+    user_id: i32,
+}
+
+#[derive(Serialize)]
+struct MultiHostResponse {
+    party_id: i32,
+}
+
+#[derive(Deserialize)]
+struct MultiJoinRequest {
+    user_id: i32,
+    party_id: i32,
+}
+
+#[derive(Serialize)]
+struct MultiJoinResponse {
+    party_id: i32,
+}
+
+#[derive(Deserialize)]
+struct MultiGuessRequest {
+    party_id: i32,
+    user_id: i32,
+    word: String,
+}
+
+#[derive(Serialize)]
+struct MultiStateResponse {
+    party_id: i32,
+    word_length: usize,
+    generation: u64,
+    first_letter_hint: Option<String>,
+    your_attempts: Vec<PrivateAttemptDto>,
+    your_words_found: u8,
+    others_scores: Vec<OtherScoreDto>,
+    winner_user_id: Option<i32>,
+    finished: bool,
+}
+
+#[derive(Serialize)]
+struct MultiGuessResponse {
+    you_found_word: bool,
+    state: MultiStateResponse,
+}
+
 async fn fetch_random_target_word(
     client: &mut WordServiceClient<Channel>,
 ) -> Result<String, tonic::Status> {
@@ -103,64 +158,51 @@ async fn fetch_random_target_word(
     ))
 }
 
-fn row_to_dto(r: &AttemptRow) -> Result<AttemptDto, String> {
-    let fb: Vec<String> = match &r.feedback {
-        Some(j) => serde_json::from_value(j.0.clone()).map_err(|e| e.to_string())?,
-        None => Vec::new(),
-    };
-    Ok(AttemptDto {
-        word: r.word.clone(),
-        feedback: fb,
-    })
+fn feedback_to_strings(f: &[LetterFeedback]) -> Vec<String> {
+    f.iter()
+        .map(|x| match x {
+            LetterFeedback::Correct => "correct".to_string(),
+            LetterFeedback::Present => "present".to_string(),
+            LetterFeedback::Absent => "absent".to_string(),
+        })
+        .collect()
 }
 
-fn history_from_rows(rows: &[AttemptRow]) -> Result<Vec<AttemptDto>, String> {
-    rows.iter().map(row_to_dto).collect()
-}
-
-async fn build_state(
+async fn solo_state_response(
     pool: &sqlx::PgPool,
-    session: &SessionRow,
-    err: Option<String>,
-) -> Result<GameStateBody, String> {
-    let rows = list_attempts(pool, session.id).await.map_err(|e| e.to_string())?;
-    let history = history_from_rows(&rows)?;
-    let target_word = (session.status == "lost").then(|| session.letters.clone());
-
-    let first_letter_hint =
-        (session.status == "active" && history.is_empty()).then(|| {
-            session
-                .letters
-                .chars()
-                .next()
-                .map(|c| c.to_string())
-                .unwrap_or_default()
-        });
-    let first_letter_hint = first_letter_hint.filter(|s| !s.is_empty());
-
-    Ok(GameStateBody {
-        session_id: session.id,
-        word_length: session.letters.chars().count(),
-        max_attempts: MAX_ATTEMPTS as u32,
-        attempts_used: session.score as u32,
-        status: session.status.clone(),
-        history,
-        target_word,
-        first_letter_hint,
-        error: err,
+    session_id: &str,
+    s: &SoloSession,
+) -> Result<SoloStateResponse, sqlx::Error> {
+    let leaderboard = top_leaderboard(pool, 15).await?;
+    Ok(SoloStateResponse {
+        session_id: session_id.to_string(),
+        word_length: s.target.chars().count(),
+        max_attempts: SOLO_MAX_ATTEMPTS,
+        attempts_used: s.attempts_this_word,
+        first_letter_hint: if s.history.is_empty() {
+            s.first_letter_hint()
+        } else {
+            None
+        },
+        generation: s.generation,
+        history: s.history.clone(),
+        current_streak: s.current_streak,
+        leaderboard,
     })
 }
 
-async fn post_start(
+async fn post_profile(
     State(state): State<AppState>,
-    Json(body): Json<StartRequest>,
-) -> Result<Json<StartResponse>, (StatusCode, Json<Value>)> {
-    let player_username = body
-        .username
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| format!("player_{}", uuid::Uuid::new_v4()));
-
-    let user_id = get_or_create_user(&state.pool, &player_username)
+    Json(body): Json<ProfileRequest>,
+) -> Result<Json<ProfileResponse>, (StatusCode, Json<Value>)> {
+    let username = body.username.trim();
+    if username.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "nom vide" })),
+        ));
+    }
+    let user_id = get_or_create_user(&state.pool, username)
         .await
         .map_err(|e| {
             (
@@ -168,42 +210,31 @@ async fn post_start(
                 Json(json!({ "error": e.to_string() })),
             )
         })?;
-
-    let mut client = state.grpc.clone();
-    let target = fetch_random_target_word(&mut client).await.map_err(|e| {
-        (
-            StatusCode::BAD_GATEWAY,
-            Json(json!({ "error": format!("word_service: {e}") })),
-        )
-    })?;
-
-    let session_id = insert_session(&state.pool, user_id, &target)
+    let row = get_user_profile(&state.pool, user_id)
         .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": e.to_string() })),
             )
-        })?;
+        })?
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "profil introuvable" })),
+        ))?;
 
-    let first_letter_hint = target.chars().next().map(|c| c.to_string());
-
-    Ok(Json(StartResponse {
-        player_username,
-        session_id,
-        word_length: target.chars().count(),
-        max_attempts: MAX_ATTEMPTS as u32,
-        history: vec![],
-        status: "active".to_string(),
-        first_letter_hint,
+    Ok(Json(ProfileResponse {
+        user_id: row.id,
+        username: row.username,
+        best_score: row.best_score,
     }))
 }
 
-async fn get_state(
+async fn post_solo_start(
     State(state): State<AppState>,
-    Path(session_id): Path<i32>,
-) -> Result<Json<GameStateBody>, (StatusCode, Json<Value>)> {
-    let session = get_session(&state.pool, session_id)
+    Json(body): Json<SoloStartRequest>,
+) -> Result<Json<SoloStateResponse>, (StatusCode, Json<Value>)> {
+    get_user_profile(&state.pool, body.user_id)
         .await
         .map_err(|e| {
             (
@@ -213,10 +244,28 @@ async fn get_state(
         })?
         .ok_or((
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "session introuvable" })),
+            Json(json!({ "error": "joueur introuvable" })),
         ))?;
 
-    let body = build_state(&state.pool, &session, None)
+    let mut grpc = state.grpc.clone();
+    let target = fetch_random_target_word(&mut grpc).await.map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": format!("word_service: {e}") })),
+        )
+    })?;
+
+    let session_id = Uuid::new_v4().to_string();
+    let session = SoloSession {
+        user_id: body.user_id,
+        target,
+        generation: 1,
+        attempts_this_word: 0,
+        history: Vec::new(),
+        current_streak: 0,
+    };
+
+    let snap = solo_state_response(&state.pool, &session_id, &session)
         .await
         .map_err(|e| {
             (
@@ -225,13 +274,35 @@ async fn get_state(
             )
         })?;
 
+    state.solo.lock().await.insert(session_id, session);
+
+    Ok(Json(snap))
+}
+
+async fn get_solo_state(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Result<Json<SoloStateResponse>, (StatusCode, Json<Value>)> {
+    let solo = state.solo.lock().await;
+    let s = solo.get(&session_id).ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({ "error": "session inconnue" })),
+    ))?;
+    let body = solo_state_response(&state.pool, &session_id, s)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
     Ok(Json(body))
 }
 
-async fn post_guess(
+async fn post_solo_guess(
     State(state): State<AppState>,
-    Json(body): Json<GuessRequest>,
-) -> Result<Json<GameStateBody>, (StatusCode, Json<Value>)> {
+    Json(body): Json<SoloGuessRequest>,
+) -> Result<Json<SoloGuessResponse>, (StatusCode, Json<Value>)> {
     let guess_raw = body.word.trim();
     if guess_raw.is_empty() {
         return Err((
@@ -240,7 +311,193 @@ async fn post_guess(
         ));
     }
 
-    let session = get_session(&state.pool, body.session_id)
+    let guess_upper: String = guess_raw.chars().map(|c| c.to_ascii_uppercase()).collect();
+
+    let mut won_word = false;
+    let mut lost_word = false;
+
+    let mut grpc = state.grpc.clone();
+
+    {
+        let mut map = state.solo.lock().await;
+        let session = map.get_mut(&body.session_id).ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "session inconnue" })),
+        ))?;
+
+        if session.user_id != body.user_id {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "session d'un autre joueur" })),
+            ));
+        }
+
+        if guess_upper.chars().count() != session.target.chars().count() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": format!(
+                        "le mot doit faire {} lettres",
+                        session.target.chars().count()
+                    )
+                })),
+            ));
+        }
+
+        let dict_ok = grpc
+            .check_word(CheckWordRequest {
+                word: guess_upper.clone(),
+            })
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({ "error": format!("dictionnaire: {e}") })),
+                )
+            })?
+            .into_inner()
+            .is_valid;
+
+        if !dict_ok {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "ce mot n'existe pas dans le dictionnaire",
+                    "code": "not_in_dictionary"
+                })),
+            ));
+        }
+
+        let feedback_vec = compute_feedback(&guess_upper, &session.target).ok_or((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "comparaison impossible" })),
+        ))?;
+        let fb_strings = feedback_to_strings(&feedback_vec);
+        let win = is_win(&guess_upper, &session.target);
+
+        session.history.push(SoloAttemptDto {
+            word: guess_upper.clone(),
+            feedback: fb_strings.clone(),
+        });
+
+        if win {
+            won_word = true;
+            session.current_streak += 1;
+            update_best_score_if_better(&state.pool, body.user_id, session.current_streak)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": e.to_string() })),
+                    )
+                })?;
+
+            let new_target = fetch_random_target_word(&mut grpc).await.map_err(|e| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({ "error": format!("word_service: {e}") })),
+                )
+            })?;
+            session.target = new_target;
+            session.generation += 1;
+            session.attempts_this_word = 0;
+            session.history.clear();
+        } else {
+            session.attempts_this_word += 1;
+            if session.attempts_this_word >= SOLO_MAX_ATTEMPTS {
+                lost_word = true;
+                session.current_streak = 0;
+                let new_target = fetch_random_target_word(&mut grpc).await.map_err(|e| {
+                    (
+                        StatusCode::BAD_GATEWAY,
+                        Json(json!({ "error": format!("word_service: {e}") })),
+                    )
+                })?;
+                session.target = new_target;
+                session.generation += 1;
+                session.attempts_this_word = 0;
+                session.history.clear();
+            }
+        }
+    }
+
+    let session = state
+        .solo
+        .lock()
+        .await
+        .get(&body.session_id)
+        .cloned()
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "session perdue" })),
+        ))?;
+
+    let snap = solo_state_response(&state.pool, &body.session_id, &session)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
+
+    Ok(Json(SoloGuessResponse {
+        won_word,
+        lost_word,
+        state: snap,
+    }))
+}
+
+async fn multi_state_response(
+    pool: &sqlx::PgPool,
+    party_id: i32,
+    user_id: i32,
+    p: &PartyInner,
+) -> Result<MultiStateResponse, sqlx::Error> {
+    let your_attempts = p
+        .private_attempts
+        .get(&user_id)
+        .cloned()
+        .unwrap_or_default();
+    let your_words_found = *p.words_found.get(&user_id).unwrap_or(&0);
+
+    let mut others_scores = Vec::new();
+    for &uid in &p.participants {
+        if uid == user_id {
+            continue;
+        }
+        let row = get_user_profile(pool, uid).await?;
+        let name = row.map(|r| r.username).unwrap_or_else(|| format!("user#{uid}"));
+        others_scores.push(OtherScoreDto {
+            user_id: uid,
+            username: name,
+            words_found: *p.words_found.get(&uid).unwrap_or(&0),
+        });
+    }
+    others_scores.sort_by(|a, b| a.username.cmp(&b.username));
+
+    Ok(MultiStateResponse {
+        party_id,
+        word_length: p.target.chars().count(),
+        generation: p.generation,
+        first_letter_hint: if your_attempts.is_empty() {
+            p.first_letter_hint()
+        } else {
+            None
+        },
+        your_attempts,
+        your_words_found,
+        others_scores,
+        winner_user_id: p.winner,
+        finished: p.winner.is_some(),
+    })
+}
+
+async fn post_multi_host(
+    State(state): State<AppState>,
+    Json(body): Json<MultiHostRequest>,
+) -> Result<Json<MultiHostResponse>, (StatusCode, Json<Value>)> {
+    get_user_profile(&state.pool, body.user_id)
         .await
         .map_err(|e| {
             (
@@ -250,107 +507,68 @@ async fn post_guess(
         })?
         .ok_or((
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "session introuvable" })),
+            Json(json!({ "error": "joueur introuvable" })),
         ))?;
 
-    if session.status != "active" {
-        let msg = match session.status.as_str() {
-            "won" => "partie déjà gagnée — lancez une nouvelle partie",
-            "lost" => "partie déjà perdue — lancez une nouvelle partie",
-            _ => "partie terminée",
-        };
-        return Err((StatusCode::BAD_REQUEST, Json(json!({ "error": msg }))));
-    }
-
-    let target = &session.letters;
-    let guess_upper: String = guess_raw.chars().map(|c| c.to_ascii_uppercase()).collect();
-
-    if guess_upper.chars().count() != target.chars().count() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": format!(
-                    "le mot doit faire {} lettres",
-                    target.chars().count()
-                )
-            })),
-        ));
-    }
+    let party_id = insert_party(&state.pool, body.user_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
 
     let mut grpc = state.grpc.clone();
-    let dict_ok = grpc
-        .check_word(CheckWordRequest {
-            word: guess_upper.clone(),
-        })
+    let target = fetch_random_target_word(&mut grpc).await.map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": format!("word_service: {e}") })),
+        )
+    })?;
+
+    let mut participants = std::collections::HashSet::new();
+    participants.insert(body.user_id);
+
+    let mut words_found = std::collections::HashMap::new();
+    words_found.insert(body.user_id, 0);
+
+    let inner = PartyInner {
+        party_id,
+        host_user_id: body.user_id,
+        target,
+        generation: 1,
+        words_found,
+        private_attempts: std::collections::HashMap::new(),
+        participants,
+        winner: None,
+    };
+
+    state.parties.lock().await.insert(party_id, inner);
+
+    Ok(Json(MultiHostResponse { party_id }))
+}
+
+async fn post_multi_join(
+    State(state): State<AppState>,
+    Json(body): Json<MultiJoinRequest>,
+) -> Result<Json<MultiJoinResponse>, (StatusCode, Json<Value>)> {
+    if !party_exists(&state.pool, body.party_id)
         .await
         .map_err(|e| {
             (
-                StatusCode::BAD_GATEWAY,
-                Json(json!({ "error": format!("dictionnaire (word_service): {e}") })),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
             )
         })?
-        .into_inner()
-        .is_valid;
-
-    if !dict_ok {
+    {
         return Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": "ce mot n'existe pas dans le dictionnaire",
-                "code": "not_in_dictionary"
-            })),
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "code de partie invalide" })),
         ));
     }
 
-    let feedback_vec = compute_feedback(&guess_upper, target).ok_or((
-        StatusCode::BAD_REQUEST,
-        Json(json!({ "error": "comparaison impossible" })),
-    ))?;
-
-    let feedback_json = serde_json::to_value(&feedback_vec).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-    })?;
-
-    insert_attempt(
-        &state.pool,
-        session.id,
-        &guess_upper,
-        &feedback_json,
-        true,
-    )
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-    })?;
-
-    let new_score = session.score + 1;
-    let won = is_win(&guess_upper, target);
-    let lost = !won && new_score >= MAX_ATTEMPTS;
-
-    let new_status = if won {
-        "won"
-    } else if lost {
-        "lost"
-    } else {
-        "active"
-    };
-
-    update_session_progress(&state.pool, session.id, new_score, new_status)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-        })?;
-
-    let updated = get_session(&state.pool, session.id)
+    get_user_profile(&state.pool, body.user_id)
         .await
         .map_err(|e| {
             (
@@ -358,9 +576,178 @@ async fn post_guess(
                 Json(json!({ "error": e.to_string() })),
             )
         })?
-        .expect("session exists");
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "joueur introuvable" })),
+        ))?;
 
-    let out = build_state(&state.pool, &updated, None)
+    let mut map = state.parties.lock().await;
+    let party = map.get_mut(&body.party_id).ok_or((
+        StatusCode::GONE,
+        Json(json!({
+            "error": "partie non disponible (hôte absent ou serveur redémarré — recréez une partie)"
+        })),
+    ))?;
+
+    if party.winner.is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "partie terminée" })),
+        ));
+    }
+
+    party.participants.insert(body.user_id);
+    party.words_found.entry(body.user_id).or_insert(0);
+
+    Ok(Json(MultiJoinResponse {
+        party_id: body.party_id,
+    }))
+}
+
+async fn get_multi_state(
+    State(state): State<AppState>,
+    Query(q): Query<MultiWordsQuery>,
+) -> Result<Json<MultiStateResponse>, (StatusCode, Json<Value>)> {
+    let map = state.parties.lock().await;
+    let p = map.get(&q.party_id).ok_or((
+        StatusCode::GONE,
+        Json(json!({ "error": "partie non disponible" })),
+    ))?;
+    let body = multi_state_response(&state.pool, q.party_id, q.user_id, p)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
+    Ok(Json(body))
+}
+
+async fn post_multi_guess(
+    State(state): State<AppState>,
+    Json(body): Json<MultiGuessRequest>,
+) -> Result<Json<MultiGuessResponse>, (StatusCode, Json<Value>)> {
+    let guess_raw = body.word.trim();
+    if guess_raw.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "mot vide" })),
+        ));
+    }
+
+    let guess_upper: String = guess_raw.chars().map(|c| c.to_ascii_uppercase()).collect();
+    let mut grpc = state.grpc.clone();
+    let mut you_found_word = false;
+
+    {
+        let mut map = state.parties.lock().await;
+        let party = map.get_mut(&body.party_id).ok_or((
+            StatusCode::GONE,
+            Json(json!({ "error": "partie non disponible" })),
+        ))?;
+
+        if party.winner.is_some() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "partie terminée" })),
+            ));
+        }
+
+        if !party.participants.contains(&body.user_id) {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "vous n'êtes pas dans cette partie" })),
+            ));
+        }
+
+        if guess_upper.chars().count() != party.target.chars().count() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": format!(
+                        "le mot doit faire {} lettres",
+                        party.target.chars().count()
+                    )
+                })),
+            ));
+        }
+
+        let dict_ok = grpc
+            .check_word(CheckWordRequest {
+                word: guess_upper.clone(),
+            })
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({ "error": format!("dictionnaire: {e}") })),
+                )
+            })?
+            .into_inner()
+            .is_valid;
+
+        if !dict_ok {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "ce mot n'existe pas dans le dictionnaire",
+                    "code": "not_in_dictionary"
+                })),
+            ));
+        }
+
+        let feedback_vec = compute_feedback(&guess_upper, &party.target).ok_or((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "comparaison impossible" })),
+        ))?;
+        let fb_strings = feedback_to_strings(&feedback_vec);
+        let win = is_win(&guess_upper, &party.target);
+
+        party
+            .private_attempts
+            .entry(body.user_id)
+            .or_default()
+            .push(PrivateAttemptDto {
+                word: guess_upper.clone(),
+                feedback: fb_strings,
+            });
+
+        if win {
+            you_found_word = true;
+            let v = party.words_found.entry(body.user_id).or_insert(0);
+            *v = v.saturating_add(1);
+            if *v >= MULTI_WORDS_TO_WIN {
+                party.winner = Some(body.user_id);
+            }
+            for uid in &party.participants {
+                party.private_attempts.insert(*uid, Vec::new());
+            }
+            if party.winner.is_none() {
+                let new_target = fetch_random_target_word(&mut grpc).await.map_err(|e| {
+                    (
+                        StatusCode::BAD_GATEWAY,
+                        Json(json!({ "error": format!("word_service: {e}") })),
+                    )
+                })?;
+                party.target = new_target;
+                party.generation += 1;
+            }
+        }
+    }
+
+    let party = state
+        .parties
+        .lock()
+        .await
+        .get(&body.party_id)
+        .cloned()
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "partie perdue" })),
+        ))?;
+
+    let snap = multi_state_response(&state.pool, body.party_id, body.user_id, &party)
         .await
         .map_err(|e| {
             (
@@ -369,7 +756,10 @@ async fn post_guess(
             )
         })?;
 
-    Ok(Json(out))
+    Ok(Json(MultiGuessResponse {
+        you_found_word,
+        state: snap,
+    }))
 }
 
 #[tokio::main]
@@ -386,24 +776,37 @@ async fn main() {
         });
 
     let pool = connect().await;
+    migrate_best_score_column(&pool)
+        .await
+        .expect("migration best_score");
+    migrate_parties_table(&pool)
+        .await
+        .expect("migration parties");
 
     let state = AppState {
         pool,
         grpc,
+        solo: shared_solo(),
+        parties: shared_parties(),
     };
 
     let addr =
         std::env::var("PROCESSING_BIND").unwrap_or_else(|_| "127.0.0.1:3001".to_string());
 
     let app = Router::new()
-        .route("/api/game/start", post(post_start))
-        .route("/api/game/state/{session_id}", get(get_state))
-        .route("/api/guess", post(post_guess))
+        .route("/api/profile", post(post_profile))
+        .route("/api/solo/start", post(post_solo_start))
+        .route("/api/solo/state/{session_id}", get(get_solo_state))
+        .route("/api/solo/guess", post(post_solo_guess))
+        .route("/api/multi/host", post(post_multi_host))
+        .route("/api/multi/join", post(post_multi_join))
+        .route("/api/multi/state", get(get_multi_state))
+        .route("/api/multi/guess", post(post_multi_guess))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind");
-    println!("processing_service → http://{addr}");
-    println!("PostgreSQL via DATABASE_URL · word_service gRPC: {grpc_url}");
+    println!("processing_service en ligne → http://{addr}");
+    println!("BDD (DATABASE_URL) · gRPC mots : {grpc_url}");
 
     axum::serve(listener, app).await.expect("serve");
 }

@@ -1,0 +1,4 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/qualitedevprojet`
+web_server → http://127.0.0.1:3000
+Proxy API vers PROCESSING_BASE (défaut http://127.0.0.1:3001)

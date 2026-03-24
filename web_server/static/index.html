@@ -8,31 +8,83 @@
 </head>
 <body>
 
+    <div id="loginOverlay" class="overlay" hidden>
+        <div class="login-card" role="dialog" aria-labelledby="loginTitle">
+            <h2 id="loginTitle">Connexion</h2>
+            <p class="login-hint">Pseudo.</p>
+            <div class="login-row">
+                <label class="sr-only" for="loginName">Pseudo</label>
+                <input type="text" id="loginName" placeholder="Ton pseudo" autocomplete="username" maxlength="64" spellcheck="false">
+                <button type="button" id="loginBtn">Valider</button>
+            </div>
+            <p id="loginError" class="error-line login-error" role="alert" hidden></p>
+        </div>
+    </div>
+
+    <div id="modeOverlay" class="overlay" hidden>
+        <div class="login-card mode-card" role="dialog" aria-labelledby="modeTitle">
+            <h2 id="modeTitle">Mode de jeu</h2>
+            <p class="login-hint"><strong>Solo</strong> : 6 essais par mot, winstreak sauvegardé. <strong>Multi</strong> : tu héberges ou tu colles l'id de la game, premier à 5 mots gagne.</p>
+            <div class="mode-buttons">
+                <button type="button" id="modeSoloBtn" class="mode-btn">Solo</button>
+                <button type="button" id="modeHostBtn" class="mode-btn">Créer une partie</button>
+            </div>
+            <div class="join-row">
+                <label for="partyJoinInput">Rejoindre avec le code</label>
+                <div class="login-row">
+                    <input type="text" id="partyJoinInput" inputmode="numeric" placeholder="ex. 67" autocomplete="off">
+                    <button type="button" id="modeJoinBtn">Rejoindre</button>
+                </div>
+            </div>
+            <p id="modeError" class="error-line login-error" role="alert" hidden></p>
+        </div>
+    </div>
+
     <h1>UsTom</h1>
-    <p class="tagline">Mot de 4 à 8 lettres (aléatoire) · 1<sup>re</sup> lettre donnée au départ · 5 essais · rouge / jaune / gris</p>
+    <p class="tagline"> — solo ou multi, mots en 4–8 lettres.</p>
+
+    <div id="profileBar" class="profile-bar" hidden></div>
+    <p id="cycleInfo" class="cycle-info" hidden></p>
 
     <div id="statusBanner" class="status-banner" hidden></div>
 
-    <section class="board-wrap" aria-label="Grille des tentatives">
-        <div id="board" class="board"></div>
-    </section>
+    <div id="gamePanel" class="game-panel" hidden>
+        <div class="layout">
+            <div class="main-col">
+                <section class="board-wrap" aria-label="Grille des tentatives">
+                    <div id="board" class="board"></div>
+                </section>
 
-    <div class="input-zone">
-        <label class="sr-only" for="wordInput">Votre mot</label>
-        <input
-            type="text"
-            id="wordInput"
-            placeholder="Votre mot"
-            autocomplete="off"
-            spellcheck="false"
-            maxlength="32"
-            inputmode="text"
-        >
-        <button type="button" id="sendBtn">Valider</button>
-        <button type="button" id="newGameBtn" class="secondary" hidden>Nouvelle partie</button>
+                <div class="input-zone">
+                    <label class="sr-only" for="wordInput">Proposition</label>
+                    <input
+                        type="text"
+                        id="wordInput"
+                        placeholder="Ton mot"
+                        autocomplete="off"
+                        spellcheck="false"
+                        maxlength="32"
+                        inputmode="text"
+                        disabled
+                    >
+                    <button type="button" id="sendBtn" disabled>Envoyer</button>
+                    <button type="button" id="newSoloBtn" class="secondary" hidden>Relancer une partie solo</button>
+                </div>
+
+                <p class="change-player-wrap" hidden id="changePlayerWrap">
+                    <button type="button" id="changePlayerBtn" class="linkish">changer de profil / mode</button>
+                </p>
+
+                <p id="errorLine" class="error-line" role="alert" hidden></p>
+            </div>
+
+            <aside id="sideAside" class="leaderboard-aside" aria-label="Panneau latéral" hidden>
+                <h2 id="sideTitle" class="leaderboard-title">—</h2>
+                <p id="sideHint" class="leaderboard-hint"></p>
+                <ol id="sideList" class="leaderboard-list"></ol>
+            </aside>
+        </div>
     </div>
-
-    <p id="errorLine" class="error-line" role="alert" hidden></p>
 
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 

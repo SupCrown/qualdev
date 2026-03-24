@@ -1,0 +1,8 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running `target/debug/qualitedevprojet`
+Serveur lancé sur http://127.0.0.1:3000
+Processing (proxy) : PROCESSING_BASE ou défaut http://127.0.0.1:3001

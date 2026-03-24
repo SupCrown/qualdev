@@ -1,4 +1,5 @@
-//! Serveur web : fichiers statiques (`static/`) et proxy des routes `/api/*` vers `processing_service`.
+//! Front tout simple : on sert le statique dans `static/`, et on **proxy** tout `/api/*`
+//! vers le `processing_service` (URL via `PROCESSING_BASE`). Rien de magique : du Axum + reqwest.
 
 use axum::Router;
 use tower_http::services::ServeDir;
@@ -8,17 +9,20 @@ mod bridge;
 
 #[tokio::main]
 async fn main() {
+    let bind_addr =
+        std::env::var("WEB_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+
     let app = Router::new()
         .merge(api::router())
         .nest_service("/", ServeDir::new("static"));
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+    let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .unwrap();
 
-    println!("Serveur lancé sur http://127.0.0.1:3000");
+    println!("web_server → http://{bind_addr}");
     println!(
-        "Processing (proxy) : PROCESSING_BASE ou défaut http://127.0.0.1:3001"
+        "Proxy API vers PROCESSING_BASE (défaut http://127.0.0.1:3001)"
     );
 
     axum::serve(listener, app).await.unwrap();

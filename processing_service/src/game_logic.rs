@@ -1,5 +1,5 @@
-//! Règles de feedback **Wordle / Tusmo** : lettre bien placée (rouge), mal placée (jaune), absente (gris).
-//! Implémentation alignée sur les quotas de lettres du mot cible (doubles lettres gérés).
+//! Cœur « jeu » : feedback façon Wordle (on mappe en correct / present / absent côté API).
+//! Les doubles lettres suivent la logique habituelle — cf. tests unitaires si tu doutes.
 
 use serde::Serialize;
 

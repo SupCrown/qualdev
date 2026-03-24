@@ -1,0 +1,3 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running `target/debug/word_service`
+🚀 WordService listening on 0.0.0.0:50051

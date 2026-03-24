@@ -1,3 +1,6 @@
+//! Petit client HTTP partagé : on reconstruit l’URL à partir de `PROCESSING_BASE`
+//! et on renvoie le JSON tel quel (status + body) pour les handlers Axum.
+
 use axum::http::StatusCode;
 use serde_json::Value;
 use std::sync::OnceLock;
@@ -12,7 +15,7 @@ fn processing_base() -> String {
     std::env::var("PROCESSING_BASE").unwrap_or_else(|_| "http://127.0.0.1:3001".to_string())
 }
 
-/// Transfère la réponse HTTP + JSON du `processing_service`.
+/// Proxy JSON : forward body, renvoie `(status, json)`.
 pub async fn proxy_post(path: &str, body: Value) -> Result<(StatusCode, Value), String> {
     let url = format!(
         "{}/{}",

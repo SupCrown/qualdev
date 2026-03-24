@@ -1,0 +1,61 @@
+   Compiling processing_service v0.1.0 (/home/josua/Bureau/School/tusmo/processing_service)
+warning: function `get_profile_by_username` is never used
+   --> src/db.rs:116:14
+    |
+116 | pub async fn get_profile_by_username(
+    |              ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: function `insert_session` is never used
+   --> src/db.rs:175:14
+    |
+175 | pub async fn insert_session(pool: &PgPool, user_id: i32, target_word: &str) -> Result<i32, sqlx::Error> {
+    |              ^^^^^^^^^^^^^^
+
+warning: fields `id`, `letters`, `score`, and `status` are never read
+   --> src/db.rs:192:9
+    |
+191 | pub struct SessionRow {
+    |            ---------- fields in this struct
+192 |     pub id: i32,
+    |         ^^
+...
+195 |     pub letters: String,
+    |         ^^^^^^^
+196 |     pub score: i32,
+    |         ^^^^^
+197 |     pub status: String,
+    |         ^^^^^^
+    |
+    = note: `SessionRow` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `word` and `feedback` are never read
+   --> src/db.rs:212:9
+    |
+211 | pub struct AttemptRow {
+    |            ---------- fields in this struct
+212 |     pub word: String,
+    |         ^^^^
+213 |     pub feedback: Option<Json<Value>>,
+    |         ^^^^^^^^
+    |
+    = note: `AttemptRow` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `party_id` and `host_user_id` are never read
+  --> src/multi.rs:32:9
+   |
+31 | pub struct PartyInner {
+   |            ---------- fields in this struct
+32 |     pub party_id: i32,
+   |         ^^^^^^^^
+33 |     pub host_user_id: i32,
+   |         ^^^^^^^^^^^^
+   |
+   = note: `PartyInner` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: `processing_service` (bin "processing_service") generated 5 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.02s
+     Running `target/debug/processing_service`
+processing_service en ligne → http://127.0.0.1:3001
+BDD (DATABASE_URL) · gRPC mots : http://127.0.0.1:50051
